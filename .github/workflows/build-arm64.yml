@@ -55,12 +55,12 @@ jobs:
           $xml.Package.Properties.DisplayName = 'Wino Mail (Personal ARM64)'
           $xml.Save($m)
 
-      # 4. 还原 NuGet 包
+      # 4. 还原 NuGet 包（注意用复数 RuntimeIdentifiers，和官方发布脚本一致）
       - name: Restore
         shell: pwsh
         run: |
           dotnet restore src/Wino.Mail.WinUI/Wino.Mail.WinUI.csproj `
-            --configfile nuget.config -p:Platform=ARM64 -p:RuntimeIdentifier=win-arm64
+            --configfile nuget.config -p:Platform=ARM64 -p:RuntimeIdentifiers=win-arm64
 
       # 5. 编译 + 打包 ARM64 AppxBundle
       - name: Build ARM64 AppxBundle
@@ -71,7 +71,7 @@ jobs:
             -t:Build `
             -p:Configuration=Release `
             -p:Platform=ARM64 `
-            -p:RuntimeIdentifier=win-arm64 `
+            -p:RuntimeIdentifiers=win-arm64 `
             -p:GenerateAppxPackageOnBuild=true `
             -p:AppxBundle=Always `
             -p:AppxBundlePlatforms=arm64 `
