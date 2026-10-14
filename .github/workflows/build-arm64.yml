@@ -79,7 +79,35 @@ jobs:
             -p:AppxPackageSigningEnabled=true `
             -p:PackageCertificateThumbprint="${{ env.CERT_THUMBPRINT }}" `
             -p:PackageCertificateKeyFile="$env:RUNNER_TEMP\WinoMailPersonal.pfx" `
-            -p:PackageCertificatePassword=wino
+            -p:PackageCertificatePassword=wino `
+            /flp:logfile=msbuild.log`;verbosity=normal 2>&1 | Tee-Object -FilePath build-console.log
+        continue-on-error: true
+
+      # 5b. 提取真正的错误行（而不是编译器命令行）
+      - name: Extract errors
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "===== ERROR LINES ====="
+          $patterns = @('error CS\d+', 'error IL\d+', 'error MSB\d+', 'error APPX\d+', 'MakeAppx : error', ': error :')
+          $hits = @()
+          foreach ($log in @('msbuild.log', 'build-console.log')) {
+            if (Test-Path $log) {
+              $hits += Select-String -Path $log -Pattern ($patterns -join '|') |
+                Where-Object { $_.Line.Length -lt 2000 } |
+                Select-Object -ExpandProperty Line -Unique
+            }
+          }
+          $hits | Select-Object -Unique | ForEach-Object { Write-Host $_ }
+          Write-Host "===== END ($($hits.Count) lines) ====="
+          $hits | Select-Object -Unique | Out-File -FilePath error-lines.txt -Encoding utf8
+
+      - name: Upload error log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-errors
+          path: error-lines.txt
 
       # 6. 收集产物
       - name: Collect artifacts
