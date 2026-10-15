@@ -173,5 +173,5 @@ jobs:
         with:
           name: WinoMail-ARM64-sideload
           path: |
-            staging/sdk/*.msixbundle
+            staging/sdk/**/*.msixbundle
             WinoMail.Personal.ARM64.cer
