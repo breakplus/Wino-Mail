@@ -102,7 +102,7 @@ jobs:
             -p:AppxPackageDir="$staging\sdk\" `
             -p:AppxPackageSigningEnabled=true `
             -p:PackageCertificateThumbprint="$env:CERT_THUMBPRINT" `
-            -p:AppxSymbolPackageEnabled=false `
+            -p:AppxSymbolPackageEnabled=true `
             -p:GenerateTestArtifacts=false 2>&1 | Tee-Object -FilePath $buildLog
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
