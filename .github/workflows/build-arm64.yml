@@ -76,6 +76,7 @@ jobs:
           dotnet msbuild src/Wino.Mail.WinUI/Wino.Mail.WinUI.csproj
           -t:Restore
           -p:RestoreConfigFile="$env:GITHUB_WORKSPACE/nuget.config"
+          -p:ArtifactsPath="$env:GITHUB_WORKSPACE/staging/build"
           -nologo
 
       - name: Build ARM64 sideload MSIX (official pipeline invocation)
