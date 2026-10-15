@@ -61,6 +61,36 @@ jobs:
           Write-Host "cert thumbprint: $($cert.Thumbprint)"
           Write-Host "cer exported: $cerPath"
 
+      - name: Patch AOT PDB into PDBPayload
+        shell: pwsh
+        run: |
+          # 上游 WinoExportReleaseSymbols 要求 AOT 的 PDB 必须在 @(PDBPayload) 里，
+          # 但 MSIX 工具链不会自动收录 ILCompiler 生成的 PDB。这里加一个 target 补上。
+          $targets = @'
+          <Project>
+            <Target Name="WinoAddAotPdbToPdbPayload"
+                    AfterTargets="_CalculateInputsForGenerateAppxPackageRecipe"
+                    BeforeTargets="WinoExportReleaseSymbols"
+                    Condition="'`$(PublishAot)' == 'true' and '`$(Configuration)' == 'Release'">
+              <ItemGroup>
+                <PDBPayload Include="`$(OutputPath)`$(TargetName).pdb"
+                            Condition="Exists('`$(OutputPath)`$(TargetName).pdb')" />
+              </ItemGroup>
+              <Message Text="WinoAddAotPdbToPdbPayload: added `$(TargetName).pdb to PDBPayload"
+                       Importance="high" />
+            </Target>
+          </Project>
+          '@
+          $targets | Set-Content 'src/Wino.Mail.WinUI/WinoAotPdbFix.targets' -Encoding utf8
+          # 临时 import 进 csproj（构建完即弃，不污染 fork）
+          $csproj = 'src/Wino.Mail.WinUI/Wino.Mail.WinUI.csproj'
+          $xml = [xml](Get-Content $csproj -Raw)
+          $import = $xml.CreateElement('Import', $xml.Project.NamespaceURI)
+          $import.SetAttribute('Project', 'WinoAotPdbFix.targets')
+          $xml.Project.AppendChild($import) | Out-Null
+          $xml.Save((Resolve-Path $csproj).Path)
+          Write-Host 'patched csproj with WinoAotPdbFix.targets'
+
       - name: Setup .NET SDK (repo-pinned, .NET 10)
         uses: actions/setup-dotnet@v4
         with:
