@@ -110,6 +110,20 @@ jobs:
           -p:RuntimeIdentifiers=win-arm64
           -nologo
 
+      - name: Publish ARM64 AOT (explicit, win-arm64 profile)
+        shell: pwsh
+        run: |
+          $staging = "$env:GITHUB_WORKSPACE\staging"
+          dotnet publish src/Wino.Mail.WinUI/Wino.Mail.WinUI.csproj `
+            -c Release `
+            -p:PublishProfile=win-arm64 `
+            -p:Platform=ARM64 `
+            -p:ArtifactsPath="$staging\build" `
+            -p:RuntimeIdentifiers=win-arm64 2>&1 | Tee-Object -FilePath "$env:GITHUB_WORKSPACE\publish.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host 'publish done, checking exe:'
+          Get-ChildItem -Recurse -Filter 'Wino.Mail.WinUI.exe' "$staging\build" | Select-Object FullName
+
       - name: Build ARM64 sideload MSIX (official pipeline invocation)
         shell: pwsh
         run: |
