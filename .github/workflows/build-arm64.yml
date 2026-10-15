@@ -1,128 +1,130 @@
 name: Build Wino Mail ARM64 (Sideload)
 
-# 手动触发：Actions 页面点 "Run workflow"
+# Builds a native-ARM64 sideload .msixbundle from your fork, mirroring the
+# upstream official release pipeline (scripts/release/windows/build-releases.ps1
+# as of 2026-10-15), plus personal customizations:
+#   - FreeAccountLimit 3 -> 99
+#   - package identity renamed to WinoMail.Personal.ARM64 (coexists with Store version)
+#   - self-signed cert for sideload install
+#
+# Key differences vs the earlier hand-written workflow (these are the likely
+# causes of the 6 ILCompiler errors):
+#   1. Uses `dotnet msbuild` with the repo-pinned .NET 10 SDK (actions/setup-dotnet),
+#      NOT VS msbuild: VS 2022's SDK resolver cannot load .NET 10 (per upstream script).
+#   2. Passes -p:Platform=arm64 so the csproj auto-selects the correct publish
+#      profile Properties\PublishProfiles\win-arm64.pubxml (UseNativeAot=true,
+#      SelfContained=true, TrimMode=full). Without it the wrong profile's
+#      RuntimeIdentifier conflicts with the command-line RID -> ILC failures.
+#   3. Restores with the repo's own nuget.config, like the official pipeline.
+# AOT needs no extra switches: it is enabled by the csproj + pubxml properties
+# for Release builds.
+
 on:
   workflow_dispatch:
 
 jobs:
-  build-arm64:
+  build:
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup .NET SDK
+      - name: Raise FreeAccountLimit 3 -> 99
+        shell: pwsh
+        run: |
+          $hit = Get-ChildItem -Path . -Recurse -Filter *.cs |
+                 Select-String -Pattern 'FreeAccountLimit\s*=\s*3\b' |
+                 Select-Object -First 1
+          if (-not $hit) { throw 'FreeAccountLimit constant not found' }
+          $p = $hit.Path
+          (Get-Content $p -Raw) -replace 'FreeAccountLimit\s*=\s*3\b', 'FreeAccountLimit = 99' |
+            Set-Content $p -NoNewline
+          Write-Host "patched: $p"
+          Select-String -Path $p -Pattern 'FreeAccountLimit'
+
+      - name: Rename package identity + create self-signed cert
+        shell: pwsh
+        run: |
+          $manifest = 'src/Wino.Mail.WinUI/Package.appxmanifest'
+          [xml]$xml = Get-Content $manifest
+          $xml.Package.Identity.Name = 'WinoMail.Personal.ARM64'
+          $publisher = $xml.Package.Identity.Publisher
+          $xml.Save((Resolve-Path $manifest).Path)
+          Write-Host "package name -> WinoMail.Personal.ARM64 (publisher: $publisher)"
+          $cert = New-SelfSignedCertificate -Type Custom -Subject $publisher `
+                    -KeyUsage DigitalSignature -FriendlyName 'WinoMail Personal ARM64' `
+                    -CertStoreLocation 'Cert:\CurrentUser\My' `
+                    -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
+          "CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+          $cerPath = "$env:GITHUB_WORKSPACE\WinoMail.Personal.ARM64.cer"
+          Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
+          Write-Host "cert thumbprint: $($cert.Thumbprint)"
+          Write-Host "cer exported: $cerPath"
+
+      - name: Setup .NET SDK (repo-pinned, .NET 10)
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+      - name: Show SDK
+        shell: pwsh
+        run: dotnet --info
 
-      # 1. 解除账户数量限制（改成 99）
-      - name: Remove account limit
+      - name: Restore (repo nuget.config, as upstream does)
+        shell: pwsh
+        run: >
+          dotnet msbuild src/Wino.Mail.WinUI/Wino.Mail.WinUI.csproj
+          -t:Restore
+          -p:RestoreConfigFile="$env:GITHUB_WORKSPACE/nuget.config"
+          -nologo
+
+      - name: Build ARM64 sideload MSIX (official pipeline invocation)
         shell: pwsh
         run: |
-          $f = 'src/Wino.Core.Domain/Constants.cs'
-          (Get-Content $f -Raw) -replace 'FreeAccountLimit = \d+', 'FreeAccountLimit = 99' |
-            Set-Content $f -NoNewline
-          Select-String 'FreeAccountLimit' $f
-
-      # 2. 生成自签名证书（侧载安装用）
-      - name: Create self-signed cert
-        shell: pwsh
-        run: |
-          $cert = New-SelfSignedCertificate -Type Custom `
-            -Subject "CN=WinoMail Personal" `
-            -KeyUsage DigitalSignature `
-            -FriendlyName "WinoMail Personal Sideload" `
-            -CertStoreLocation "Cert:\CurrentUser\My" `
-            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
-          $pwd = ConvertTo-SecureString -String "wino" -Force -AsPlainText
-          Export-PfxCertificate -Cert $cert -FilePath "$env:RUNNER_TEMP\WinoMailPersonal.pfx" -Password $pwd
-          Export-Certificate -Cert $cert -FilePath "$env:RUNNER_TEMP\WinoMailPersonal.cer"
-          echo "CERT_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
-
-      # 3. 修改 manifest 为侧载身份（避免与商店版冲突）
-      - name: Patch manifest for sideload
-        shell: pwsh
-        run: |
-          $m = 'src/Wino.Mail.WinUI/Package.appxmanifest'
-          [xml]$xml = Get-Content $m -Raw
-          $xml.Package.Identity.Name = 'WinoMail.Personal.ARM64'
-          $xml.Package.Identity.Publisher = 'CN=WinoMail Personal'
-          # Properties 显示名称
-          $xml.Package.Properties.DisplayName = 'Wino Mail (Personal ARM64)'
-          $xml.Save($m)
-
-      # 4. 还原 NuGet 包（注意用复数 RuntimeIdentifiers，和官方发布脚本一致）
-      - name: Restore
-        shell: pwsh
-        run: |
-          dotnet restore src/Wino.Mail.WinUI/Wino.Mail.WinUI.csproj `
-            --configfile nuget.config -p:Platform=ARM64 -p:RuntimeIdentifiers=win-arm64
-
-      # 5. 编译 + 打包 ARM64 AppxBundle
-      - name: Build ARM64 AppxBundle
-        shell: pwsh
-        run: |
-          msbuild src/Wino.Mail.WinUI/Wino.Mail.WinUI.csproj `
+          $staging  = "$env:GITHUB_WORKSPACE\staging"
+          $buildLog = "$env:GITHUB_WORKSPACE\build.log"
+          New-Item -ItemType Directory -Force -Path "$staging\build" | Out-Null
+          dotnet msbuild src/Wino.Mail.WinUI/Wino.Mail.WinUI.csproj `
             -nologo -m -nr:false -verbosity:normal `
-            -t:Build `
             -p:Configuration=Release `
-            -p:Platform=ARM64 `
+            -p:Platform=arm64 `
             -p:RuntimeIdentifiers=win-arm64 `
+            -p:ArtifactsPath="$staging\build" `
+            -p:NotificationHostPublishRoot="$staging\notification-hosts\" `
+            -p:WinoReleaseStagingRoot="$staging\exports" `
+            -t:Build `
             -p:GenerateAppxPackageOnBuild=true `
             -p:AppxBundle=Always `
-            -p:AppxBundlePlatforms=arm64 `
+            -p:AppxBundlePlatforms=ARM64 `
             -p:UapAppxPackageBuildMode=SideloadOnly `
+            -p:AppxPackageDir="$staging\sdk\" `
             -p:AppxPackageSigningEnabled=true `
-            -p:PackageCertificateThumbprint="${{ env.CERT_THUMBPRINT }}" `
-            -p:PackageCertificateKeyFile="$env:RUNNER_TEMP\WinoMailPersonal.pfx" `
-            -p:PackageCertificatePassword=wino `
-            /flp:logfile=msbuild.log`;verbosity=normal 2>&1 | Tee-Object -FilePath build-console.log
-        continue-on-error: true
+            -p:PackageCertificateThumbprint="$env:CERT_THUMBPRINT" `
+            -p:AppxSymbolPackageEnabled=false `
+            -p:GenerateTestArtifacts=false 2>&1 | Tee-Object -FilePath $buildLog
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      # 5b. 提取真正的错误行（而不是编译器命令行）
-      - name: Extract errors
-        if: always()
+      - name: Show error lines on failure
+        if: failure()
         shell: pwsh
         run: |
-          Write-Host "===== ERROR LINES ====="
-          $patterns = @('error CS\d+', 'error IL\d+', 'error MSB\d+', 'error APPX\d+', 'MakeAppx : error', ': error :')
-          $hits = @()
-          foreach ($log in @('msbuild.log', 'build-console.log')) {
-            if (Test-Path $log) {
-              $hits += Select-String -Path $log -Pattern ($patterns -join '|') |
-                Where-Object { $_.Line.Length -lt 2000 } |
-                Select-Object -ExpandProperty Line -Unique
-            }
-          }
-          $hits | Select-Object -Unique | ForEach-Object { Write-Host $_ }
-          Write-Host "===== END ($($hits.Count) lines) ====="
-          $hits | Select-Object -Unique | Out-File -FilePath error-lines.txt -Encoding utf8
+          '===== ERROR LINES ====='
+          Select-String -Path "$env:GITHUB_WORKSPACE\build.log" `
+            -Pattern 'error [A-Z]+[0-9]+|ILC\s*:|MakeAppx\s*:\s*error' |
+            Select-Object -First 40
 
-      - name: Upload error log
+      - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-errors
-          path: error-lines.txt
+          name: build-log
+          path: build.log
 
-      # 6. 收集产物
-      - name: Collect artifacts
-        shell: pwsh
-        run: |
-          $bundle = Get-ChildItem -Recurse -Filter "*.msixbundle" `
-            src/Wino.Mail.WinUI/AppPackages | Select-Object -First 1
-          if (-not $bundle) { throw 'msixbundle not found' }
-          New-Item -ItemType Directory -Force out | Out-Null
-          Copy-Item $bundle.FullName out/
-          Copy-Item "$env:RUNNER_TEMP\WinoMailPersonal.cer" out/
-          Get-ChildItem out/
-
-      - name: Upload artifact
+      - name: Upload sideload package + cert
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: wino-mail-arm64
-          path: out/
+          name: WinoMail-ARM64-sideload
+          path: |
+            staging/sdk/*.msixbundle
+            WinoMail.Personal.ARM64.cer
