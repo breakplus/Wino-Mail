@@ -119,7 +119,8 @@ jobs:
             -p:PublishProfile=win-arm64 `
             -p:Platform=ARM64 `
             -p:ArtifactsPath="$staging\build" `
-            -p:RuntimeIdentifiers=win-arm64 2>&1 | Tee-Object -FilePath "$env:GITHUB_WORKSPACE\publish.log"
+            -p:RuntimeIdentifiers=win-arm64 `
+            -p:NotificationHostPublishRoot="$staging\notification-hosts\" 2>&1 | Tee-Object -FilePath "$env:GITHUB_WORKSPACE\publish.log"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Write-Host 'publish done, checking exe:'
           Get-ChildItem -Recurse -Filter 'Wino.Mail.WinUI.exe' "$staging\build" | Select-Object FullName
