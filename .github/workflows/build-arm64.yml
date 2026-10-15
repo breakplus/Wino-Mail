@@ -71,12 +71,12 @@ jobs:
             <Target Name="WinoAddAotPdbToPdbPayload"
                     AfterTargets="_CalculateInputsForGenerateAppxPackageRecipe"
                     BeforeTargets="WinoExportReleaseSymbols"
-                    Condition="'`$(PublishAot)' == 'true' and '`$(Configuration)' == 'Release'">
+                    Condition="'$(PublishAot)' == 'true' and '$(Configuration)' == 'Release'">
               <ItemGroup>
-                <PDBPayload Include="`$(OutputPath)`$(TargetName).pdb"
-                            Condition="Exists('`$(OutputPath)`$(TargetName).pdb')" />
+                <PDBPayload Include="$(OutputPath)$(TargetName).pdb"
+                            Condition="Exists('$(OutputPath)$(TargetName).pdb')" />
               </ItemGroup>
-              <Message Text="WinoAddAotPdbToPdbPayload: added `$(TargetName).pdb to PDBPayload"
+              <Message Text="WinoAddAotPdbToPdbPayload: added $(TargetName).pdb to PDBPayload"
                        Importance="high" />
             </Target>
           </Project>
