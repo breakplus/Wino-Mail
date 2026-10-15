@@ -77,6 +77,7 @@ jobs:
           -t:Restore
           -p:RestoreConfigFile="$env:GITHUB_WORKSPACE/nuget.config"
           -p:ArtifactsPath="$env:GITHUB_WORKSPACE/staging/build"
+          -p:RuntimeIdentifiers=win-arm64
           -nologo
 
       - name: Build ARM64 sideload MSIX (official pipeline invocation)
