@@ -11,7 +11,7 @@ name: Build Wino Mail ARM64 (Sideload)
 # causes of the 6 ILCompiler errors):
 #   1. Uses `dotnet msbuild` with the repo-pinned .NET 10 SDK (actions/setup-dotnet),
 #      NOT VS msbuild: VS 2022's SDK resolver cannot load .NET 10 (per upstream script).
-#   2. Passes -p:Platform=arm64 so the csproj auto-selects the correct publish
+#   2. Passes -p:Platform=ARM64 so the csproj auto-selects the correct publish
 #      profile Properties\PublishProfiles\win-arm64.pubxml (UseNativeAot=true,
 #      SelfContained=true, TrimMode=full). Without it the wrong profile's
 #      RuntimeIdentifier conflicts with the command-line RID -> ILC failures.
@@ -119,7 +119,7 @@ jobs:
           dotnet msbuild src/Wino.Mail.WinUI/Wino.Mail.WinUI.csproj `
             -nologo -m -nr:false -verbosity:normal `
             -p:Configuration=Release `
-            -p:Platform=arm64 `
+            -p:Platform=ARM64 `
             -p:RuntimeIdentifiers=win-arm64 `
             -p:ArtifactsPath="$staging\build" `
             -p:NotificationHostPublishRoot="$staging\notification-hosts\" `
